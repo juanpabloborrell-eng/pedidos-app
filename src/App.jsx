@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from './lib/supabase'
 import * as XLSX from 'xlsx'
 
@@ -61,6 +61,26 @@ const styles = {
     backgroundColor: '#ffffff',
     color: '#111827',
   },
+  buttonDanger: {
+    padding: '8px 10px',
+    fontSize: 14,
+    borderRadius: 6,
+    border: '1px solid #ef4444',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#ef4444',
+    marginRight: 6,
+  },
+  buttonSmall: {
+    padding: '8px 10px',
+    fontSize: 14,
+    borderRadius: 6,
+    border: '1px solid #cfcfcf',
+    cursor: 'pointer',
+    backgroundColor: '#ffffff',
+    color: '#111827',
+    marginRight: 6,
+  },
   infoBox: {
     border: '1px solid #d9d9d9',
     borderRadius: 12,
@@ -74,7 +94,7 @@ const styles = {
   },
   table: {
     borderCollapse: 'collapse',
-    minWidth: 420,
+    minWidth: 520,
     width: '100%',
   },
   thtd: {
@@ -82,6 +102,7 @@ const styles = {
     padding: 8,
     textAlign: 'left',
     fontSize: 14,
+    verticalAlign: 'top',
   },
   title: {
     fontSize: 28,
@@ -110,8 +131,14 @@ function App() {
   const [cantidad, setCantidad] = useState('')
   const [observaciones, setObservaciones] = useState('')
   const [items, setItems] = useState([])
-
   const [historial, setHistorial] = useState([])
+
+  const [editandoIndex, setEditandoIndex] = useState(null)
+  const [pedidoConfirmado, setPedidoConfirmado] = useState(false)
+  const [ultimoPedidoGuardado, setUltimoPedidoGuardado] = useState(null)
+
+  const cantidadRef = useRef(null)
+  const productoRef = useRef(null)
 
   const cargarPerfil = async () => {
     const {
@@ -154,7 +181,7 @@ function App() {
       return
     }
 
-    setProductos(data)
+    setProductos(data || [])
   }
 
   const cargarHistorial = async () => {
@@ -180,54 +207,6 @@ function App() {
     }
 
     setHistorial(data || [])
-  }
-
-  const exportarExcel = () => {
-    if (!historial.length || !perfil || !usuario) {
-      setMensaje('❌ No hay historial para exportar')
-      return
-    }
-
-    const filas = historial.flatMap((pedido) =>
-      (pedido.pedido_detalle || []).map((item) => ({
-        pedido_id: pedido.id,
-        fecha: new Date(pedido.created_at).toLocaleString(),
-        sucursal: perfil.sucursales.nombre,
-        usuario: perfil.usuario,
-        codigo: item.codigo,
-        articulo: item.articulo,
-        cantidad: item.cantidad,
-        observaciones: pedido.observaciones || '',
-      }))
-    )
-
-    const worksheet = XLSX.utils.json_to_sheet(filas)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Pedidos')
-
-    XLSX.writeFile(workbook, `Pedidos_${perfil.sucursales.nombre}.xlsx`)
-    setMensaje('✅ Excel exportado correctamente')
-  }
-
-  const enviarWhatsApp = () => {
-    if (!perfil || items.length === 0) {
-      setMensaje('❌ No hay pedido actual para enviar por WhatsApp')
-      return
-    }
-
-    const texto = [
-      `PEDIDO - ${perfil.sucursales.nombre}`,
-      `Usuario: ${perfil.usuario}`,
-      '',
-      'DETALLE:',
-      ...items.map((item) => `${item.codigo} - ${item.articulo} - Cantidad: ${item.cantidad}`),
-      '',
-      `Observaciones: ${observaciones || '-'}`,
-    ].join('\n')
-
-    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(texto)}`
-    window.open(url, '_blank')
-    setMensaje('✅ WhatsApp abierto con el pedido cargado')
   }
 
   const login = async () => {
@@ -260,10 +239,35 @@ function App() {
     setProductos([])
     setItems([])
     setHistorial([])
+    setPedidoConfirmado(false)
+    setUltimoPedidoGuardado(null)
     setMensaje('Sesión cerrada')
   }
 
-  const agregarItem = () => {
+  const limpiarPedidoActual = () => {
+    setProductoSeleccionado('')
+    setCantidad('')
+    setObservaciones('')
+    setItems([])
+    setEditandoIndex(null)
+    setPedidoConfirmado(false)
+    setUltimoPedidoGuardado(null)
+    setMensaje('')
+  }
+
+  const onSeleccionProducto = (valor) => {
+    setProductoSeleccionado(valor)
+    setTimeout(() => {
+      cantidadRef.current?.focus()
+    }, 50)
+  }
+
+  const agregarOActualizarItem = () => {
+    if (pedidoConfirmado) {
+      setMensaje('❌ El pedido ya fue confirmado. Iniciá uno nuevo.')
+      return
+    }
+
     if (!productoSeleccionado || !cantidad || Number(cantidad) <= 0) {
       setMensaje('❌ Elegí producto y cantidad válida')
       return
@@ -276,33 +280,79 @@ function App() {
       return
     }
 
-    const existe = items.find((i) => i.producto_id === producto.id)
-
-    if (existe) {
-      const nuevos = items.map((i) =>
-        i.producto_id === producto.id
-          ? { ...i, cantidad: Number(i.cantidad) + Number(cantidad) }
-          : i
-      )
+    if (editandoIndex !== null) {
+      const nuevos = [...items]
+      nuevos[editandoIndex] = {
+        ...nuevos[editandoIndex],
+        producto_id: producto.id,
+        codigo: producto.codigo,
+        articulo: producto.nombre,
+        cantidad: Number(cantidad),
+      }
       setItems(nuevos)
+      setEditandoIndex(null)
+      setMensaje('✅ Item actualizado')
     } else {
-      setItems([
-        ...items,
-        {
-          producto_id: producto.id,
-          codigo: producto.codigo,
-          articulo: producto.nombre,
-          cantidad: Number(cantidad),
-        },
-      ])
+      const existe = items.find((i) => i.producto_id === producto.id)
+
+      if (existe) {
+        const nuevos = items.map((i) =>
+          i.producto_id === producto.id
+            ? { ...i, cantidad: Number(i.cantidad) + Number(cantidad) }
+            : i
+        )
+        setItems(nuevos)
+      } else {
+        setItems([
+          ...items,
+          {
+            producto_id: producto.id,
+            codigo: producto.codigo,
+            articulo: producto.nombre,
+            cantidad: Number(cantidad),
+          },
+        ])
+      }
+      setMensaje('✅ Item agregado')
     }
 
     setProductoSeleccionado('')
     setCantidad('')
-    setMensaje('Item agregado')
+    setTimeout(() => {
+      productoRef.current?.focus()
+    }, 50)
   }
 
-  const guardarPedido = async () => {
+  const editarItem = (index) => {
+    const item = items[index]
+    setProductoSeleccionado(String(item.producto_id))
+    setCantidad(String(item.cantidad))
+    setEditandoIndex(index)
+    setMensaje('Editando item...')
+    setTimeout(() => {
+      cantidadRef.current?.focus()
+    }, 50)
+  }
+
+  const eliminarItem = (index) => {
+    if (pedidoConfirmado) {
+      setMensaje('❌ El pedido ya fue confirmado. Iniciá uno nuevo.')
+      return
+    }
+
+    const nuevos = items.filter((_, i) => i !== index)
+    setItems(nuevos)
+
+    if (editandoIndex === index) {
+      setEditandoIndex(null)
+      setProductoSeleccionado('')
+      setCantidad('')
+    }
+
+    setMensaje('✅ Item eliminado')
+  }
+
+  const confirmarPedido = async () => {
     if (!perfil) {
       setMensaje('❌ No hay perfil cargado')
       return
@@ -359,13 +409,65 @@ function App() {
       return
     }
 
-    setMensaje(`✅ Pedido guardado correctamente. ID: ${pedido.id}`)
-    setItems([])
-    setObservaciones('')
-    setProductoSeleccionado('')
-    setCantidad('')
+    setPedidoConfirmado(true)
+    setUltimoPedidoGuardado({
+      id: pedido.id,
+      created_at: pedido.created_at,
+      observaciones,
+      items: [...items],
+    })
+    setMensaje(`✅ Pedido confirmado. ID: ${pedido.id}`)
 
     await cargarHistorial()
+  }
+
+  const exportarUltimoPedidoExcel = () => {
+    if (!ultimoPedidoGuardado || !perfil) {
+      setMensaje('❌ No hay pedido confirmado para exportar')
+      return
+    }
+
+    const filas = ultimoPedidoGuardado.items.map((item) => ({
+      pedido_id: ultimoPedidoGuardado.id,
+      fecha: new Date(ultimoPedidoGuardado.created_at).toLocaleString(),
+      sucursal: perfil.sucursales.nombre,
+      usuario: perfil.usuario,
+      codigo: item.codigo,
+      articulo: item.articulo,
+      cantidad: item.cantidad,
+      observaciones: ultimoPedidoGuardado.observaciones || '',
+    }))
+
+    const worksheet = XLSX.utils.json_to_sheet(filas)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Pedidos')
+
+    XLSX.writeFile(workbook, `Pedido_${ultimoPedidoGuardado.id}.xlsx`)
+    setMensaje('✅ Excel del pedido exportado correctamente')
+  }
+
+  const enviarUltimoPedidoWhatsApp = () => {
+    if (!ultimoPedidoGuardado || !perfil) {
+      setMensaje('❌ No hay pedido confirmado para enviar')
+      return
+    }
+
+    const texto = [
+      `PEDIDO CONFIRMADO - ${perfil.sucursales.nombre}`,
+      `Pedido ID: ${ultimoPedidoGuardado.id}`,
+      `Usuario: ${perfil.usuario}`,
+      '',
+      'DETALLE:',
+      ...ultimoPedidoGuardado.items.map(
+        (item) => `${item.codigo} - ${item.articulo} - Cantidad: ${item.cantidad}`
+      ),
+      '',
+      `Observaciones: ${ultimoPedidoGuardado.observaciones || '-'}`,
+    ].join('\n')
+
+    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(texto)}`
+    window.open(url, '_blank')
+    setMensaje('✅ WhatsApp abierto con el pedido confirmado')
   }
 
   useEffect(() => {
@@ -421,9 +523,11 @@ function App() {
         <h2 style={styles.subtitle}>Nuevo pedido</h2>
 
         <select
+          ref={productoRef}
           value={productoSeleccionado}
-          onChange={(e) => setProductoSeleccionado(e.target.value)}
+          onChange={(e) => onSeleccionProducto(e.target.value)}
           style={styles.input}
+          disabled={pedidoConfirmado}
         >
           <option value="">Seleccionar producto</option>
           {productos.map((p) => (
@@ -434,15 +538,21 @@ function App() {
         </select>
 
         <input
+          ref={cantidadRef}
           type="number"
           placeholder="Cantidad"
           value={cantidad}
           onChange={(e) => setCantidad(e.target.value)}
           style={styles.input}
+          disabled={pedidoConfirmado}
         />
 
-        <button onClick={agregarItem} style={styles.buttonSecondary}>
-          Agregar item
+        <button
+          onClick={agregarOActualizarItem}
+          style={styles.buttonSecondary}
+          disabled={pedidoConfirmado}
+        >
+          {editandoIndex !== null ? 'Actualizar item' : 'Agregar item'}
         </button>
 
         <textarea
@@ -450,6 +560,7 @@ function App() {
           value={observaciones}
           onChange={(e) => setObservaciones(e.target.value)}
           style={styles.textarea}
+          disabled={pedidoConfirmado}
         />
 
         <h3>Detalle del pedido actual</h3>
@@ -464,6 +575,7 @@ function App() {
                   <th style={styles.thtd}>Código</th>
                   <th style={styles.thtd}>Artículo</th>
                   <th style={styles.thtd}>Cantidad</th>
+                  <th style={styles.thtd}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -472,6 +584,22 @@ function App() {
                     <td style={styles.thtd}>{item.codigo}</td>
                     <td style={styles.thtd}>{item.articulo}</td>
                     <td style={styles.thtd}>{item.cantidad}</td>
+                    <td style={styles.thtd}>
+                      <button
+                        onClick={() => editarItem(index)}
+                        style={styles.buttonSmall}
+                        disabled={pedidoConfirmado}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => eliminarItem(index)}
+                        style={styles.buttonDanger}
+                        disabled={pedidoConfirmado}
+                      >
+                        Eliminar
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -479,17 +607,25 @@ function App() {
           </div>
         )}
 
-        <button onClick={guardarPedido} style={styles.button}>
-          Confirmar pedido
-        </button>
+        {!pedidoConfirmado ? (
+          <button onClick={confirmarPedido} style={styles.button}>
+            Confirmar pedido
+          </button>
+        ) : (
+          <>
+            <button onClick={exportarUltimoPedidoExcel} style={styles.buttonSecondary}>
+              Exportar Excel del pedido
+            </button>
 
-        <button onClick={enviarWhatsApp} style={styles.buttonSecondary}>
-          Enviar por WhatsApp
-        </button>
+            <button onClick={enviarUltimoPedidoWhatsApp} style={styles.buttonSecondary}>
+              Enviar pedido por WhatsApp
+            </button>
 
-        <button onClick={exportarExcel} style={styles.buttonSecondary}>
-          Exportar Excel
-        </button>
+            <button onClick={limpiarPedidoActual} style={styles.button}>
+              Nuevo pedido
+            </button>
+          </>
+        )}
 
         <button onClick={logout} style={styles.buttonSecondary}>
           Cerrar sesión
