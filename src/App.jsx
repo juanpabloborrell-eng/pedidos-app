@@ -256,11 +256,15 @@ function App() {
   }
 
   const onSeleccionProducto = (valor) => {
-    setProductoSeleccionado(valor)
-    setTimeout(() => {
-      cantidadRef.current?.focus()
-    }, 50)
-  }
+  setProductoSeleccionado(valor)
+
+  setTimeout(() => {
+    if (cantidadRef.current) {
+      cantidadRef.current.focus()
+      cantidadRef.current.select()
+    }
+  }, 100)
+}
 
   const agregarOActualizarItem = () => {
     if (pedidoConfirmado) {
