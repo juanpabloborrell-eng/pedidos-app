@@ -542,14 +542,16 @@ function App() {
         </select>
 
         <input
-          ref={cantidadRef}
-          type="number"
-          placeholder="Cantidad"
-          value={cantidad}
-          onChange={(e) => setCantidad(e.target.value)}
-          style={styles.input}
-          disabled={pedidoConfirmado}
-        />
+  ref={cantidadRef}
+  type="text"
+  inputMode="numeric"
+  pattern="[0-9]*"
+  placeholder="Cantidad"
+  value={cantidad}
+  onChange={(e) => setCantidad(e.target.value)}
+  style={styles.input}
+  disabled={pedidoConfirmado}
+/>
 
         <button
           onClick={agregarOActualizarItem}
