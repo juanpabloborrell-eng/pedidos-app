@@ -145,6 +145,9 @@ function App() {
   const [pedidoConfirmado, setPedidoConfirmado] = useState(false)
   const [ultimoPedidoGuardado, setUltimoPedidoGuardado] = useState(null)
 
+  const [fechaDesde, setFechaDesde] = useState('')
+  const [fechaHasta, setFechaHasta] = useState('')
+
   const cantidadRef = useRef(null)
   const productoRef = useRef(null)
 
@@ -168,8 +171,8 @@ function App() {
 
   const getBotonesRapidos = () => {
     const paso = getPasoProducto()
-    if (paso === 5) return [5, 10, 15, 20, 25, 30, 35, 40, 45]
-    if (paso === 20) return [20, 40, 60, 80, 100, 120]
+    if (paso === 5) return [5, 10, 15, 20]
+    if (paso === 20) return [20, 40, 60, 80]
     return []
   }
 
@@ -186,6 +189,7 @@ function App() {
       .from('profiles')
       .select(`
         usuario,
+        role,
         sucursal_id,
         sucursales(nombre)
       `)
@@ -240,6 +244,88 @@ function App() {
     }
 
     setHistorial(data || [])
+  }
+
+  const exportarConsolidado = async () => {
+    if (!perfil || perfil.role !== 'admin') {
+      setMensaje('❌ Solo un administrador puede exportar el consolidado')
+      return
+    }
+
+    if (!fechaDesde || !fechaHasta) {
+      setMensaje('❌ Elegí fecha desde y fecha hasta')
+      return
+    }
+
+    const desde = `${fechaDesde}T00:00:00`
+    const hasta = `${fechaHasta}T23:59:59`
+
+    const { data, error } = await supabase
+      .from('pedidos')
+      .select(`
+        id,
+        created_at,
+        observaciones,
+        sucursal_id,
+        pedido_detalle (
+          id,
+          codigo,
+          articulo,
+          cantidad
+        )
+      `)
+      .gte('created_at', desde)
+      .lte('created_at', hasta)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error(error)
+      setMensaje('❌ Error al obtener pedidos consolidados')
+      return
+    }
+
+    const { data: sucursalesData, error: sucError } = await supabase
+      .from('sucursales')
+      .select('id, nombre')
+
+    if (sucError) {
+      console.error(sucError)
+      setMensaje('❌ Error al obtener sucursales')
+      return
+    }
+
+    const mapaSucursales = {}
+    sucursalesData.forEach((s) => {
+      mapaSucursales[s.id] = s.nombre
+    })
+
+    const filas = (data || []).flatMap((pedido) =>
+      (pedido.pedido_detalle || []).map((item) => ({
+        pedido_id: pedido.id,
+        fecha: new Date(pedido.created_at).toLocaleString(),
+        sucursal: mapaSucursales[pedido.sucursal_id] || '',
+        codigo: item.codigo,
+        articulo: item.articulo,
+        cantidad: item.cantidad,
+        observaciones: pedido.observaciones || '',
+      }))
+    )
+
+    if (filas.length === 0) {
+      setMensaje('❌ No hay pedidos en ese rango de fechas')
+      return
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(filas)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Consolidado')
+
+    XLSX.writeFile(
+      workbook,
+      `Consolidado_${fechaDesde}_a_${fechaHasta}.xlsx`
+    )
+
+    setMensaje('✅ Consolidado exportado correctamente')
   }
 
   const login = async () => {
@@ -533,220 +619,267 @@ function App() {
 
   const botonesRapidos = getBotonesRapidos()
 
-   if (!usuario || !perfil) {
+  if (!usuario || !perfil) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.card}>
+          <div style={{ textAlign: 'center', marginBottom: 20 }}>
+            <img
+              src={logo}
+              alt="Porquissimo"
+              style={{ width: '100%', maxWidth: '280px', display: 'block', margin: '0 auto' }}
+            />
+          </div>
+
+          <h1 style={styles.title}>Login de pedidos</h1>
+
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={styles.input}
+          />
+
+          <input
+            type="password"
+            placeholder="Clave"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={styles.input}
+          />
+
+          <button onClick={login} style={styles.button}>
+            Ingresar
+          </button>
+
+          <p style={styles.message}>{mensaje}</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={styles.page}>
-      <div style={styles.card}>
-
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+      <div style={styles.infoBox}>
+        <div style={{ textAlign: 'center', marginBottom: 10 }}>
           <img
             src={logo}
             alt="Porquissimo"
-            style={{ width: '100%', maxWidth: '280px', display: 'block', margin: '0 auto' }}
+            style={{ width: '100%', maxWidth: '220px', display: 'block', margin: '0 auto' }}
           />
         </div>
 
-        <h1 style={styles.title}>Login de pedidos</h1>
-
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={styles.input}
-        />
-
-        <input
-          type="password"
-          placeholder="Clave"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={styles.input}
-        />
-
-        <button onClick={login} style={styles.button}>
-          Ingresar
-        </button>
-
-        <p style={styles.message}>{mensaje}</p>
-      </div>
-    </div>
-  )
-}
-
-  return (
-  <div style={styles.page}>
-    
-    <div style={styles.infoBox}>
-      <div style={{ textAlign: 'center', marginBottom: 10 }}>
-        <img
-          src={logo}
-          alt="Porquissimo"
-          style={{ width: '100%', maxWidth: '220px' }}
-        />
+        <h1 style={styles.title}>Toma de pedidos</h1>
+        <p><strong>Email:</strong> {usuario.email}</p>
+        <p><strong>Usuario:</strong> {perfil.usuario}</p>
+        <p><strong>Sucursal:</strong> {perfil.sucursales.nombre}</p>
+        <p><strong>Rol:</strong> {perfil.role}</p>
       </div>
 
-      <h1 style={styles.title}>Toma de pedidos</h1>
-      <p><strong>Email:</strong> {usuario.email}</p>
-      <p><strong>Usuario:</strong> {perfil.usuario}</p>
-      <p><strong>Sucursal:</strong> {perfil.sucursales.nombre}</p>
-    </div>
+      {perfil.role === 'admin' && (
+        <div style={styles.card}>
+          <h2 style={styles.subtitle}>Exportar consolidado</h2>
 
-    <div style={styles.card}>
-      <h2 style={styles.subtitle}>Nuevo pedido</h2>
+          <input
+            type="date"
+            value={fechaDesde}
+            onChange={(e) => setFechaDesde(e.target.value)}
+            style={styles.input}
+          />
 
-      <select
-        ref={productoRef}
-        value={productoSeleccionado}
-        onChange={(e) => onSeleccionProducto(e.target.value)}
-        style={styles.input}
-        disabled={pedidoConfirmado}
-      >
-        <option value="">Seleccionar producto</option>
-        {productos.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.codigo} - {p.nombre}
-          </option>
-        ))}
-      </select>
+          <input
+            type="date"
+            value={fechaHasta}
+            onChange={(e) => setFechaHasta(e.target.value)}
+            style={styles.input}
+          />
 
-      <input
-        ref={cantidadRef}
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        placeholder="Cantidad"
-        value={cantidad}
-        onChange={(e) => setCantidad(e.target.value)}
-        style={styles.input}
-        disabled={pedidoConfirmado}
-      />
-
-      {botonesRapidos.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          {botonesRapidos.map((valor) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => setCantidad(String(valor))}
-              style={styles.buttonSmall}
-              disabled={pedidoConfirmado}
-            >
-              {valor}
-            </button>
-          ))}
+          <button onClick={exportarConsolidado} style={styles.button}>
+            Exportar consolidado Excel
+          </button>
         </div>
       )}
 
-      <button
-        onClick={agregarOActualizarItem}
-        style={styles.buttonSecondary}
-        disabled={pedidoConfirmado}
-      >
-        {editandoIndex !== null ? 'Actualizar item' : 'Agregar item'}
-      </button>
+      <div style={styles.card}>
+        <h2 style={styles.subtitle}>Nuevo pedido</h2>
 
-      <textarea
-        placeholder="Observaciones"
-        value={observaciones}
-        onChange={(e) => setObservaciones(e.target.value)}
-        style={styles.textarea}
-        disabled={pedidoConfirmado}
-      />
+        <select
+          ref={productoRef}
+          value={productoSeleccionado}
+          onChange={(e) => onSeleccionProducto(e.target.value)}
+          style={styles.input}
+          disabled={pedidoConfirmado}
+        >
+          <option value="">Seleccionar producto</option>
+          {productos.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.codigo} - {p.nombre}
+            </option>
+          ))}
+        </select>
 
-      <h3>Detalle del pedido actual</h3>
+        <input
+          ref={cantidadRef}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          placeholder="Cantidad"
+          value={cantidad}
+          onChange={(e) => setCantidad(e.target.value)}
+          style={styles.input}
+          disabled={pedidoConfirmado}
+        />
 
-      {items.length === 0 ? (
-        <p>No hay items cargados</p>
-      ) : (
-        <table border="1" cellPadding="5" style={{ width: '100%', marginBottom: 10 }}>
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Artículo</th>
-              <th>Cantidad</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, index) => (
-              <tr key={index}>
-                <td>{item.codigo}</td>
-                <td>{item.articulo}</td>
-                <td>{item.cantidad}</td>
-                <td>
-                  <button onClick={() => editarItem(index)} style={styles.buttonSmall}>Editar</button>
-                  <button onClick={() => eliminarItem(index)} style={styles.buttonSmall}>Eliminar</button>
-                </td>
-              </tr>
+        {botonesRapidos.length > 0 && (
+          <div style={styles.quickButtonsWrap}>
+            {botonesRapidos.map((valor) => (
+              <button
+                key={valor}
+                type="button"
+                onClick={() => setCantidad(String(valor))}
+                style={styles.buttonSmall}
+                disabled={pedidoConfirmado}
+              >
+                {valor}
+              </button>
             ))}
-          </tbody>
-        </table>
-      )}
+          </div>
+        )}
 
-      {!pedidoConfirmado ? (
-        <button onClick={confirmarPedido} style={styles.button}>
-          Confirmar pedido
+        <button
+          onClick={agregarOActualizarItem}
+          style={styles.buttonSecondary}
+          disabled={pedidoConfirmado}
+        >
+          {editandoIndex !== null ? 'Actualizar item' : 'Agregar item'}
         </button>
-      ) : (
-        <>
-          <button onClick={exportarUltimoPedidoExcel} style={styles.buttonSecondary}>
-            Exportar Excel
-          </button>
 
-          <button onClick={enviarUltimoPedidoWhatsApp} style={styles.buttonSecondary}>
-            Enviar por WhatsApp
-          </button>
+        <textarea
+          placeholder="Observaciones"
+          value={observaciones}
+          onChange={(e) => setObservaciones(e.target.value)}
+          style={styles.textarea}
+          disabled={pedidoConfirmado}
+        />
 
-          <button onClick={limpiarPedidoActual} style={styles.button}>
-            Nuevo pedido
-          </button>
-        </>
-      )}
+        <h3>Detalle del pedido actual</h3>
 
-      <button onClick={logout} style={styles.buttonSecondary}>
-        Cerrar sesión
-      </button>
-
-      <p style={styles.message}>{mensaje}</p>
-    </div>
-
-    <div style={styles.card}>
-      <h2 style={styles.subtitle}>Historial de pedidos</h2>
-
-      {historial.length === 0 ? (
-        <p>No hay pedidos guardados</p>
-      ) : (
-        historial.map((pedido) => (
-          <div key={pedido.id} style={{ border: '1px solid #ccc', padding: 10, marginBottom: 10 }}>
-            <p><strong>ID:</strong> {pedido.id}</p>
-            <p><strong>Fecha:</strong> {new Date(pedido.created_at).toLocaleString()}</p>
-
-            <table border="1" cellPadding="5" style={{ width: '100%' }}>
+        {items.length === 0 ? (
+          <p>No hay items cargados</p>
+        ) : (
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
               <thead>
                 <tr>
-                  <th>Código</th>
-                  <th>Artículo</th>
-                  <th>Cantidad</th>
+                  <th style={styles.thtd}>Código</th>
+                  <th style={styles.thtd}>Artículo</th>
+                  <th style={styles.thtd}>Cantidad</th>
+                  <th style={styles.thtd}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {pedido.pedido_detalle?.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.codigo}</td>
-                    <td>{item.articulo}</td>
-                    <td>{item.cantidad}</td>
+                {items.map((item, index) => (
+                  <tr key={index}>
+                    <td style={styles.thtd}>{item.codigo}</td>
+                    <td style={styles.thtd}>{item.articulo}</td>
+                    <td style={styles.thtd}>{item.cantidad}</td>
+                    <td style={styles.thtd}>
+                      <button
+                        onClick={() => editarItem(index)}
+                        style={styles.buttonSmall}
+                        disabled={pedidoConfirmado}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => eliminarItem(index)}
+                        style={styles.buttonDanger}
+                        disabled={pedidoConfirmado}
+                      >
+                        Eliminar
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ))
-      )}
-    </div>
+        )}
 
-  </div>
-)
+        {!pedidoConfirmado ? (
+          <button onClick={confirmarPedido} style={styles.button}>
+            Confirmar pedido
+          </button>
+        ) : (
+          <>
+            <button onClick={exportarUltimoPedidoExcel} style={styles.buttonSecondary}>
+              Exportar Excel del pedido
+            </button>
+
+            <button onClick={enviarUltimoPedidoWhatsApp} style={styles.buttonSecondary}>
+              Enviar pedido por WhatsApp
+            </button>
+
+            <button onClick={limpiarPedidoActual} style={styles.button}>
+              Nuevo pedido
+            </button>
+          </>
+        )}
+
+        <button onClick={logout} style={styles.buttonSecondary}>
+          Cerrar sesión
+        </button>
+
+        <p style={styles.message}>{mensaje}</p>
+      </div>
+
+      <div style={styles.card}>
+        <h2 style={styles.subtitle}>Historial de pedidos</h2>
+
+        {historial.length === 0 ? (
+          <p>No hay pedidos guardados</p>
+        ) : (
+          historial.map((pedido) => (
+            <div
+              key={pedido.id}
+              style={{
+                border: '1px solid #d9d9d9',
+                padding: 12,
+                marginBottom: 16,
+                borderRadius: 10,
+              }}
+            >
+              <p><strong>Pedido ID:</strong> {pedido.id}</p>
+              <p><strong>Fecha:</strong> {new Date(pedido.created_at).toLocaleString()}</p>
+              <p><strong>Observaciones:</strong> {pedido.observaciones || '-'}</p>
+
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.thtd}>Código</th>
+                      <th style={styles.thtd}>Artículo</th>
+                      <th style={styles.thtd}>Cantidad</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pedido.pedido_detalle?.map((item) => (
+                      <tr key={item.id}>
+                        <td style={styles.thtd}>{item.codigo}</td>
+                        <td style={styles.thtd}>{item.articulo}</td>
+                        <td style={styles.thtd}>{item.cantidad}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default App
