@@ -167,8 +167,8 @@ function App() {
 
   const getBotonesRapidos = () => {
     const paso = getPasoProducto()
-    if (paso === 5) return [5, 10, 15, 20]
-    if (paso === 20) return [20, 40, 60, 80]
+    if (paso === 5) return [5, 10, 15, 20, 25, 30, 35, 40, 45]
+    if (paso === 20) return [20, 40, 60, 80, 100, 120]
     return []
   }
 
