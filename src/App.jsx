@@ -80,6 +80,13 @@ const styles = {
     backgroundColor: '#ffffff',
     color: '#111827',
     marginRight: 6,
+    minWidth: 56,
+  },
+  quickButtonsWrap: {
+    display: 'flex',
+    gap: 8,
+    marginBottom: 10,
+    flexWrap: 'wrap',
   },
   infoBox: {
     border: '1px solid #d9d9d9',
@@ -139,6 +146,31 @@ function App() {
 
   const cantidadRef = useRef(null)
   const productoRef = useRef(null)
+
+  const pasosEspeciales = {
+    5: 5,
+    21: 5,
+    3: 20,
+    62: 20,
+    592: 20,
+  }
+
+  const getPasoProducto = () => {
+    const producto = productos.find(
+      (p) => String(p.id) === productoSeleccionado
+    )
+
+    if (!producto) return 1
+
+    return pasosEspeciales[producto.codigo] || 1
+  }
+
+  const getBotonesRapidos = () => {
+    const paso = getPasoProducto()
+    if (paso === 5) return [5, 10, 15, 20]
+    if (paso === 20) return [20, 40, 60, 80]
+    return []
+  }
 
   const cargarPerfil = async () => {
     const {
@@ -256,15 +288,15 @@ function App() {
   }
 
   const onSeleccionProducto = (valor) => {
-  setProductoSeleccionado(valor)
+    setProductoSeleccionado(valor)
 
-  setTimeout(() => {
-    if (cantidadRef.current) {
-      cantidadRef.current.focus()
-      cantidadRef.current.select()
-    }
-  }, 100)
-}
+    setTimeout(() => {
+      if (cantidadRef.current) {
+        cantidadRef.current.focus()
+        cantidadRef.current.select()
+      }
+    }, 100)
+  }
 
   const agregarOActualizarItem = () => {
     if (pedidoConfirmado) {
@@ -281,6 +313,13 @@ function App() {
 
     if (!producto) {
       setMensaje('❌ Producto no encontrado')
+      return
+    }
+
+    const paso = getPasoProducto()
+
+    if (paso > 1 && Number(cantidad) % paso !== 0) {
+      setMensaje(`❌ Este producto se carga de ${paso} en ${paso}`)
       return
     }
 
@@ -322,6 +361,7 @@ function App() {
 
     setProductoSeleccionado('')
     setCantidad('')
+
     setTimeout(() => {
       productoRef.current?.focus()
     }, 50)
@@ -333,9 +373,13 @@ function App() {
     setCantidad(String(item.cantidad))
     setEditandoIndex(index)
     setMensaje('Editando item...')
+
     setTimeout(() => {
-      cantidadRef.current?.focus()
-    }, 50)
+      if (cantidadRef.current) {
+        cantidadRef.current.focus()
+        cantidadRef.current.select()
+      }
+    }, 100)
   }
 
   const eliminarItem = (index) => {
@@ -486,6 +530,8 @@ function App() {
     iniciar()
   }, [])
 
+  const botonesRapidos = getBotonesRapidos()
+
   if (!usuario || !perfil) {
     return (
       <div style={styles.page}>
@@ -542,16 +588,32 @@ function App() {
         </select>
 
         <input
-  ref={cantidadRef}
-  type="text"
-  inputMode="numeric"
-  pattern="[0-9]*"
-  placeholder="Cantidad"
-  value={cantidad}
-  onChange={(e) => setCantidad(e.target.value)}
-  style={styles.input}
-  disabled={pedidoConfirmado}
-/>
+          ref={cantidadRef}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          placeholder="Cantidad"
+          value={cantidad}
+          onChange={(e) => setCantidad(e.target.value)}
+          style={styles.input}
+          disabled={pedidoConfirmado}
+        />
+
+        {botonesRapidos.length > 0 && (
+          <div style={styles.quickButtonsWrap}>
+            {botonesRapidos.map((valor) => (
+              <button
+                key={valor}
+                type="button"
+                onClick={() => setCantidad(String(valor))}
+                style={styles.buttonSmall}
+                disabled={pedidoConfirmado}
+              >
+                {valor}
+              </button>
+            ))}
+          </div>
+        )}
 
         <button
           onClick={agregarOActualizarItem}
