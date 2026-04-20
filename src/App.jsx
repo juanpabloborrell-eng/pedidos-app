@@ -147,6 +147,8 @@ function App() {
 
   const [fechaDesde, setFechaDesde] = useState('')
   const [fechaHasta, setFechaHasta] = useState('')
+  const [sucursales, setSucursales] = useState([])
+  const [sucursalFiltro, setSucursalFiltro] = useState('')
 
   const cantidadRef = useRef(null)
   const productoRef = useRef(null)
@@ -179,31 +181,62 @@ function App() {
   const cargarPerfil = async () => {
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser()
 
-    if (!user) return null
+    console.log('USER AUTH:', user)
+    console.log('USER ERROR:', userError)
+
+    if (!user) {
+      setMensaje('❌ No hay usuario autenticado')
+      return null
+    }
 
     setUsuario(user)
 
     const { data, error } = await supabase
       .from('profiles')
-      .select(`
-        usuario,
-        role,
-        sucursal_id,
-        sucursales(nombre)
-      `)
+      .select('usuario, role, sucursal_id')
       .eq('id', user.id)
       .single()
 
+    console.log('PROFILE DATA:', data)
+    console.log('PROFILE ERROR:', error)
+
     if (error) {
-      console.error(error)
+      setMensaje(`❌ Error perfil: ${error.message}`)
+      return null
+    }
+
+    if (!data) {
       setMensaje('❌ Login ok, pero no se encontró el perfil')
       return null
     }
 
-    setPerfil(data)
-    return data
+    const perfilBase = {
+      ...data,
+      sucursales: { nombre: '' },
+    }
+
+    setPerfil(perfilBase)
+    return perfilBase
+  }
+
+  const cargarNombreSucursal = async (sucursalId) => {
+    const { data, error } = await supabase
+      .from('sucursales')
+      .select('nombre')
+      .eq('id', sucursalId)
+      .single()
+
+    console.log('SUCURSAL DATA:', data)
+    console.log('SUCURSAL ERROR:', error)
+
+    if (error) {
+      return null
+    }
+
+    return data?.nombre || null
   }
 
   const cargarProductos = async () => {
@@ -221,6 +254,20 @@ function App() {
     setProductos(data || [])
   }
 
+  const cargarSucursales = async () => {
+    const { data, error } = await supabase
+      .from('sucursales')
+      .select('id, nombre')
+      .order('nombre', { ascending: true })
+
+    if (error) {
+      console.error(error)
+      return
+    }
+
+    setSucursales(data || [])
+  }
+
   const cargarHistorial = async () => {
     const { data, error } = await supabase
       .from('pedidos')
@@ -228,6 +275,7 @@ function App() {
         id,
         created_at,
         observaciones,
+        sucursal_id,
         pedido_detalle (
           id,
           codigo,
@@ -260,7 +308,7 @@ function App() {
     const desde = `${fechaDesde}T00:00:00`
     const hasta = `${fechaHasta}T23:59:59`
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('pedidos')
       .select(`
         id,
@@ -278,6 +326,12 @@ function App() {
       .lte('created_at', hasta)
       .order('created_at', { ascending: false })
 
+    if (sucursalFiltro) {
+      query = query.eq('sucursal_id', Number(sucursalFiltro))
+    }
+
+    const { data, error } = await query
+
     if (error) {
       console.error(error)
       setMensaje('❌ Error al obtener pedidos consolidados')
@@ -287,6 +341,7 @@ function App() {
     const { data: sucursalesData, error: sucError } = await supabase
       .from('sucursales')
       .select('id, nombre')
+      .order('nombre', { ascending: true })
 
     if (sucError) {
       console.error(sucError)
@@ -299,24 +354,40 @@ function App() {
       mapaSucursales[s.id] = s.nombre
     })
 
-    const filas = (data || []).flatMap((pedido) =>
+    const filasDetalle = (data || []).flatMap((pedido) =>
       (pedido.pedido_detalle || []).map((item) => ({
-        pedido_id: pedido.id,
-        fecha: new Date(pedido.created_at).toLocaleString(),
         sucursal: mapaSucursales[pedido.sucursal_id] || '',
-        codigo: item.codigo,
         articulo: item.articulo,
-        cantidad: item.cantidad,
-        observaciones: pedido.observaciones || '',
+        cantidad: Number(item.cantidad) || 0,
       }))
     )
 
-    if (filas.length === 0) {
+    if (filasDetalle.length === 0) {
       setMensaje('❌ No hay pedidos en ese rango de fechas')
       return
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(filas)
+    const sucursalesEnMatriz = [...new Set(filasDetalle.map((f) => f.sucursal))].sort()
+    const productosEnMatriz = [...new Set(filasDetalle.map((f) => f.articulo))].sort()
+
+    const matriz = productosEnMatriz.map((producto) => {
+      const fila = { Producto: producto }
+      let total = 0
+
+      sucursalesEnMatriz.forEach((sucursal) => {
+        const suma = filasDetalle
+          .filter((f) => f.articulo === producto && f.sucursal === sucursal)
+          .reduce((acc, curr) => acc + curr.cantidad, 0)
+
+        fila[sucursal] = suma
+        total += suma
+      })
+
+      fila.Total = total
+      return fila
+    })
+
+    const worksheet = XLSX.utils.json_to_sheet(matriz)
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Consolidado')
 
@@ -344,8 +415,19 @@ function App() {
 
     const perfilCargado = await cargarPerfil()
     await cargarProductos()
+    await cargarSucursales()
 
     if (perfilCargado) {
+      const nombreSucursal = await cargarNombreSucursal(perfilCargado.sucursal_id)
+
+      if (nombreSucursal) {
+        const perfilCompleto = {
+          ...perfilCargado,
+          sucursales: { nombre: nombreSucursal },
+        }
+        setPerfil(perfilCompleto)
+      }
+
       await cargarHistorial()
       setMensaje('✅ Login correcto')
     }
@@ -608,8 +690,20 @@ function App() {
   useEffect(() => {
     const iniciar = async () => {
       const perfilCargado = await cargarPerfil()
+
       if (perfilCargado) {
+        const nombreSucursal = await cargarNombreSucursal(perfilCargado.sucursal_id)
+
+        if (nombreSucursal) {
+          const perfilCompleto = {
+            ...perfilCargado,
+            sucursales: { nombre: nombreSucursal },
+          }
+          setPerfil(perfilCompleto)
+        }
+
         await cargarProductos()
+        await cargarSucursales()
         await cargarHistorial()
       }
     }
@@ -673,7 +767,9 @@ function App() {
         <h1 style={styles.title}>Toma de pedidos</h1>
         <p><strong>Email:</strong> {usuario.email}</p>
         <p><strong>Usuario:</strong> {perfil.usuario}</p>
-        <p><strong>Sucursal:</strong> {perfil.sucursales.nombre}</p>
+        <p>
+          <strong>Sucursal:</strong> {perfil.role === 'admin' ? 'Todas' : perfil.sucursales.nombre}
+        </p>
         <p><strong>Rol:</strong> {perfil.role}</p>
       </div>
 
@@ -694,6 +790,19 @@ function App() {
             onChange={(e) => setFechaHasta(e.target.value)}
             style={styles.input}
           />
+
+          <select
+            value={sucursalFiltro}
+            onChange={(e) => setSucursalFiltro(e.target.value)}
+            style={styles.input}
+          >
+            <option value="">Todas las sucursales</option>
+            {sucursales.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
 
           <button onClick={exportarConsolidado} style={styles.button}>
             Exportar consolidado Excel
