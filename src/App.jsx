@@ -355,12 +355,13 @@ function App() {
     })
 
     const filasDetalle = (data || []).flatMap((pedido) =>
-      (pedido.pedido_detalle || []).map((item) => ({
-        sucursal: mapaSucursales[pedido.sucursal_id] || '',
-        articulo: item.articulo,
-        cantidad: Number(item.cantidad) || 0,
-      }))
-    )
+  (pedido.pedido_detalle || []).map((item) => ({
+    sucursal: mapaSucursales[pedido.sucursal_id] || '',
+    codigo: item.codigo,
+    articulo: item.articulo,
+    cantidad: Number(item.cantidad) || 0,
+  }))
+)
 
     if (filasDetalle.length === 0) {
       setMensaje('❌ No hay pedidos en ese rango de fechas')
@@ -368,24 +369,37 @@ function App() {
     }
 
     const sucursalesEnMatriz = [...new Set(filasDetalle.map((f) => f.sucursal))].sort()
-    const productosEnMatriz = [...new Set(filasDetalle.map((f) => f.articulo))].sort()
+    const productosEnMatriz = [
+  ...new Map(
+    filasDetalle.map((f) => [`${f.codigo}__${f.articulo}`, { codigo: f.codigo, articulo: f.articulo }])
+  ).values()
+].sort((a, b) => Number(a.codigo) - Number(b.codigo))
 
-    const matriz = productosEnMatriz.map((producto) => {
-      const fila = { Producto: producto }
-      let total = 0
+const matriz = productosEnMatriz.map((producto) => {
+  const fila = {
+    Codigo: producto.codigo,
+    Producto: producto.articulo,
+  }
 
-      sucursalesEnMatriz.forEach((sucursal) => {
-        const suma = filasDetalle
-          .filter((f) => f.articulo === producto && f.sucursal === sucursal)
-          .reduce((acc, curr) => acc + curr.cantidad, 0)
+  let total = 0
 
-        fila[sucursal] = suma
-        total += suma
-      })
+  sucursalesEnMatriz.forEach((sucursal) => {
+    const suma = filasDetalle
+      .filter(
+        (f) =>
+          f.codigo === producto.codigo &&
+          f.articulo === producto.articulo &&
+          f.sucursal === sucursal
+      )
+      .reduce((acc, curr) => acc + curr.cantidad, 0)
 
-      fila.Total = total
-      return fila
-    })
+    fila[sucursal] = suma
+    total += suma
+  })
+
+  fila.Total = total
+  return fila
+})
 
     const worksheet = XLSX.utils.json_to_sheet(matriz)
     const workbook = XLSX.utils.book_new()
