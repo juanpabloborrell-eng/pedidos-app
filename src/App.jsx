@@ -172,11 +172,24 @@ function App() {
   }
 
   const getBotonesRapidos = () => {
-    const paso = getPasoProducto()
-    if (paso === 5) return [5, 10, 15, 20]
-    if (paso === 20) return [20, 40, 60, 80]
-    return []
+  const producto = productos.find(
+    (p) => String(p.id) === productoSeleccionado
+  )
+
+  if (!producto) return []
+
+  // Jamón y Paleta
+  if (producto.codigo === 5 || producto.codigo === 21) {
+    return [5, 10, 15, 20, 25, 30, 35, 40, 45]
   }
+
+  // Milanesas, Hamburguesa y Milastiernas
+  if (producto.codigo === 3 || producto.codigo === 62 || producto.codigo === 592) {
+    return [20, 40, 60, 80, 100, 120]
+  }
+
+  return []
+}
 
   const cargarPerfil = async () => {
     const {
@@ -295,123 +308,135 @@ function App() {
   }
 
   const exportarConsolidado = async () => {
-    if (!perfil || perfil.role !== 'admin') {
-      setMensaje('❌ Solo un administrador puede exportar el consolidado')
-      return
-    }
-
-    if (!fechaDesde || !fechaHasta) {
-      setMensaje('❌ Elegí fecha desde y fecha hasta')
-      return
-    }
-
-    const desde = `${fechaDesde}T00:00:00`
-    const hasta = `${fechaHasta}T23:59:59`
-
-    let query = supabase
-      .from('pedidos')
-      .select(`
-        id,
-        created_at,
-        observaciones,
-        sucursal_id,
-        pedido_detalle (
-          id,
-          codigo,
-          articulo,
-          cantidad
-        )
-      `)
-      .gte('created_at', desde)
-      .lte('created_at', hasta)
-      .order('created_at', { ascending: false })
-
-    if (sucursalFiltro) {
-      query = query.eq('sucursal_id', Number(sucursalFiltro))
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      console.error(error)
-      setMensaje('❌ Error al obtener pedidos consolidados')
-      return
-    }
-
-    const { data: sucursalesData, error: sucError } = await supabase
-      .from('sucursales')
-      .select('id, nombre')
-      .order('nombre', { ascending: true })
-
-    if (sucError) {
-      console.error(sucError)
-      setMensaje('❌ Error al obtener sucursales')
-      return
-    }
-
-    const mapaSucursales = {}
-    sucursalesData.forEach((s) => {
-      mapaSucursales[s.id] = s.nombre
-    })
-
-    const filasDetalle = (data || []).flatMap((pedido) =>
-  (pedido.pedido_detalle || []).map((item) => ({
-    sucursal: mapaSucursales[pedido.sucursal_id] || '',
-    codigo: item.codigo,
-    articulo: item.articulo,
-    cantidad: Number(item.cantidad) || 0,
-  }))
-)
-
-    if (filasDetalle.length === 0) {
-      setMensaje('❌ No hay pedidos en ese rango de fechas')
-      return
-    }
-
-    const sucursalesEnMatriz = [...new Set(filasDetalle.map((f) => f.sucursal))].sort()
-    const productosEnMatriz = [
-  ...new Map(
-    filasDetalle.map((f) => [`${f.codigo}__${f.articulo}`, { codigo: f.codigo, articulo: f.articulo }])
-  ).values()
-].sort((a, b) => Number(a.codigo) - Number(b.codigo))
-
-const matriz = productosEnMatriz.map((producto) => {
-  const fila = {
-    Codigo: producto.codigo,
-    Producto: producto.articulo,
+  if (!perfil || perfil.role !== 'admin') {
+    setMensaje('❌ Solo un administrador puede exportar el consolidado')
+    return
   }
 
-  let total = 0
+  if (!fechaDesde || !fechaHasta) {
+    setMensaje('❌ Elegí fecha desde y fecha hasta')
+    return
+  }
 
-  sucursalesEnMatriz.forEach((sucursal) => {
-    const suma = filasDetalle
-      .filter(
-        (f) =>
-          f.codigo === producto.codigo &&
-          f.articulo === producto.articulo &&
-          f.sucursal === sucursal
+  const desde = `${fechaDesde}T00:00:00`
+  const hasta = `${fechaHasta}T23:59:59`
+
+  let query = supabase
+    .from('pedidos')
+    .select(`
+      id,
+      created_at,
+      observaciones,
+      sucursal_id,
+      pedido_detalle (
+        id,
+        codigo,
+        articulo,
+        cantidad
       )
-      .reduce((acc, curr) => acc + curr.cantidad, 0)
+    `)
+    .gte('created_at', desde)
+    .lte('created_at', hasta)
+    .order('created_at', { ascending: false })
 
-    fila[sucursal] = suma
-    total += suma
+  if (sucursalFiltro) {
+    query = query.eq('sucursal_id', Number(sucursalFiltro))
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    console.error(error)
+    setMensaje('❌ Error al obtener pedidos consolidados')
+    return
+  }
+
+  const { data: sucursalesData, error: sucError } = await supabase
+    .from('sucursales')
+    .select('id, nombre')
+    .order('nombre', { ascending: true })
+
+  if (sucError) {
+    console.error(sucError)
+    setMensaje('❌ Error al obtener sucursales')
+    return
+  }
+
+  const mapaSucursales = {}
+  sucursalesData.forEach((s) => {
+    mapaSucursales[s.id] = s.nombre
   })
 
-  fila.Total = total
-  return fila
+  const filasDetalle = (data || []).flatMap((pedido) =>
+    (pedido.pedido_detalle || []).map((item) => ({
+      sucursal_id: pedido.sucursal_id,
+sucursal: mapaSucursales[pedido.sucursal_id] || '',
+      codigo: item.codigo,
+      articulo: item.articulo,
+      cantidad: Number(item.cantidad) || 0,
+    }))
+  )
+
+  if (filasDetalle.length === 0) {
+    setMensaje('❌ No hay pedidos en ese rango de fechas')
+    return
+  }
+
+  const sucursalesEnMatriz = sucursalFiltro
+  ? sucursalesData.filter((s) => String(s.id) === String(sucursalFiltro))
+  : sucursalesData
+
+  const productosEnMatriz = [
+    ...new Map(
+      filasDetalle.map((f) => [
+        `${f.codigo}__${f.articulo}`,
+        { codigo: f.codigo, articulo: f.articulo },
+      ])
+    ).values(),
+  ].sort((a, b) => Number(a.codigo) - Number(b.codigo))
+
+  const matriz = productosEnMatriz.map((producto) => {
+    const fila = {
+      Codigo: producto.codigo,
+      Producto: producto.articulo,
+    }
+
+    let total = 0
+
+    sucursalesEnMatriz.forEach((sucursal) => {
+  const suma = filasDetalle
+    .filter(
+      (f) =>
+        f.codigo === producto.codigo &&
+        f.articulo === producto.articulo &&
+        String(f.sucursal_id) === String(sucursal.id)
+    )
+    .reduce((acc, curr) => acc + curr.cantidad, 0)
+
+  fila[sucursal.nombre] = suma || 0
+  total += suma
 })
 
-    const worksheet = XLSX.utils.json_to_sheet(matriz)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Consolidado')
+    fila.Total = total
+    return fila
+  })
 
-    XLSX.writeFile(
-      workbook,
-      `Consolidado_${fechaDesde}_a_${fechaHasta}.xlsx`
-    )
+  const encabezados = ['Codigo', 'Producto', ...sucursalesEnMatriz.map((s) => s.nombre), 'Total']
 
-    setMensaje('✅ Consolidado exportado correctamente')
-  }
+  const worksheet = XLSX.utils.json_to_sheet(matriz, {
+    header: encabezados,
+  })
+
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Consolidado')
+
+  XLSX.writeFile(
+    workbook,
+    `Consolidado_${fechaDesde}_a_${fechaHasta}.xlsx`
+  )
+
+  setMensaje('✅ Consolidado exportado correctamente')
+}
 
   const login = async () => {
     setMensaje('Ingresando...')
