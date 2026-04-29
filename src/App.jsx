@@ -427,8 +427,25 @@ sucursal: mapaSucursales[pedido.sucursal_id] || '',
     header: encabezados,
   })
 
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Consolidado')
+ const workbook = XLSX.utils.book_new()
+
+// Hoja 1 (ya la tenés)
+XLSX.utils.book_append_sheet(workbook, worksheet, 'Consolidado')
+
+// 🔥 NUEVA HOJA DETALLE
+const filasDetalleExcel = (data || []).flatMap((pedido) =>
+  (pedido.pedido_detalle || []).map((item) => ({
+    Fecha: new Date(pedido.created_at).toLocaleDateString(),
+    Sucursal: mapaSucursales[pedido.sucursal_id] || '',
+    Codigo: item.codigo,
+    Producto: item.articulo,
+    Cantidad: Number(item.cantidad) || 0,
+  }))
+)
+
+const worksheetDetalle = XLSX.utils.json_to_sheet(filasDetalleExcel)
+
+XLSX.utils.book_append_sheet(workbook, worksheetDetalle, 'Detalle')
 
   XLSX.writeFile(
     workbook,
