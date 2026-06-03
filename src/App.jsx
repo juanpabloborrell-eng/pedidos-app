@@ -529,10 +529,10 @@ XLSX.utils.book_append_sheet(workbook, worksheetDetalle, 'Detalle')
       return
     }
 
-    if (!productoSeleccionado || !cantidad || Number(cantidad) <= 0) {
-      setMensaje('❌ Elegí producto y cantidad válida')
-      return
-    }
+    if (!productoSeleccionado || cantidad === '' || Number(cantidad) < 0) {
+  setMensaje('❌ Elegí producto y cantidad válida')
+  return
+}
 
     const producto = productos.find((p) => String(p.id) === productoSeleccionado)
 
