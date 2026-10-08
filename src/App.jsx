@@ -149,6 +149,18 @@ function App() {
   const [fechaHasta, setFechaHasta] = useState('')
   const [sucursales, setSucursales] = useState([])
   const [sucursalFiltro, setSucursalFiltro] = useState('')
+    // ESTIMADO DE MEDIAS
+const [estimadoMedias, setEstimadoMedias] = useState(null)
+const [cantidadMedias, setCantidadMedias] = useState('')
+const cantidadMediasEditadaRef = useRef(false)
+const cicloMediasAnteriorRef = useRef('')
+const [fechaEntregaMedias, setFechaEntregaMedias] = useState(null)
+const [puedeCargarMedias, setPuedeCargarMedias] = useState(false)
+const [mostrarAlertaMedias, setMostrarAlertaMedias] = useState(false)
+const [limiteEdicionMedias, setLimiteEdicionMedias] = useState(null)
+const [estimadosAdmin, setEstimadosAdmin] = useState([])
+const [fechaConsultaMedias, setFechaConsultaMedias] = useState('')
+const [edicionesMediasAdmin, setEdicionesMediasAdmin] = useState({})
 
   const cantidadRef = useRef(null)
   const productoRef = useRef(null)
@@ -189,6 +201,298 @@ function App() {
   }
 
   return []
+}
+// Convierte una fecha local al formato AAAA-MM-DD
+const fechaLocalISO = (fecha) => {
+  const anio = fecha.getFullYear()
+  const mes = String(fecha.getMonth() + 1).padStart(2, '0')
+  const dia = String(fecha.getDate()).padStart(2, '0')
+
+  return `${anio}-${mes}-${dia}`
+}
+// Calcula el ciclo de ESTIMADO DE MEDIAS
+const getCicloEstimadoMedias = () => {
+const ahora = new Date(
+  new Date().toLocaleString('en-US', {
+    timeZone: 'America/Argentina/Buenos_Aires'
+  })
+)
+  const dia = ahora.getDay() // 0 domingo, 1 lunes, 4 jueves, 5 viernes
+
+  let diasHastaEntrega = null
+
+  // Lunes -> recibe sábado
+  if (dia === 1) diasHastaEntrega = 5
+
+  // Jueves -> recibe martes siguiente
+  if (dia === 4) diasHastaEntrega = 5
+
+  // Viernes -> recibe jueves siguiente
+  if (dia === 5) diasHastaEntrega = 6
+
+  // Hoy no corresponde cargar estimado
+  if (diasHastaEntrega === null) {
+    return {
+      habilitado: false,
+      alerta: false,
+      cerrado: false,
+      fechaCarga: null,
+      fechaEntrega: null,
+    }
+  }
+
+  const fechaCarga = new Date(ahora)
+  fechaCarga.setHours(0, 0, 0, 0)
+
+  const fechaEntrega = new Date(fechaCarga)
+  fechaEntrega.setDate(fechaEntrega.getDate() + diasHastaEntrega)
+
+  const horaAlerta = new Date(fechaCarga)
+  horaAlerta.setHours(9, 0, 0, 0)
+
+  const horaCierre = new Date(fechaCarga)
+  horaCierre.setHours(11, 0, 0, 0)
+
+  return {
+    habilitado: ahora < horaCierre,
+    alerta: ahora >= horaAlerta && ahora < horaCierre,
+    cerrado: ahora >= horaCierre,
+    fechaCarga,
+    fechaEntrega,
+  }
+}
+const cargarEstimadoMedias = async (perfilActual) => {
+  if (!perfilActual?.sucursal_id || perfilActual?.role === 'admin') return
+
+  const ciclo = getCicloEstimadoMedias()
+  if (!ciclo.fechaEntrega) return
+
+const fechaEntrega = fechaLocalISO(ciclo.fechaEntrega)
+
+const claveCiclo = `${perfilActual.sucursal_id}-${fechaEntrega}`
+
+// Si cambió la sucursal o el ciclo de entrega,
+// limpiamos la cantidad anterior.
+if (cicloMediasAnteriorRef.current !== claveCiclo) {
+  cantidadMediasEditadaRef.current = false
+  setCantidadMedias('')
+  setEstimadoMedias(null)
+  cicloMediasAnteriorRef.current = claveCiclo
+}
+
+setFechaEntregaMedias(fechaEntrega)
+
+  const { data, error } = await supabase
+    .from('estimado_medias')
+    .select('*')
+    .eq('sucursal_id', perfilActual.sucursal_id)
+    .eq('fecha_entrega', fechaEntrega)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Error cargando estimado de medias:', error)
+    return
+  }
+
+  // Todavía no cargó
+  if (!data) {
+    cantidadMediasEditadaRef.current = false
+    setEstimadoMedias(null)
+    setCantidadMedias('')
+    setLimiteEdicionMedias(null)
+    setPuedeCargarMedias(ciclo.habilitado)
+    setMostrarAlertaMedias(ciclo.alerta)
+    return
+  }
+
+  // Ya existe una carga
+setEstimadoMedias(data)
+
+if (!cantidadMediasEditadaRef.current) {
+  setCantidadMedias(String(data.cantidad ?? ''))
+}
+
+setMostrarAlertaMedias(false)
+
+  const fechaBase = new Date(data.cargado_at || data.created_at)
+  const limiteEdicion = new Date(fechaBase.getTime() + 2 * 60 * 60 * 1000)
+
+  setLimiteEdicionMedias(limiteEdicion)
+
+  // Si ya cargó, puede modificar durante 2 horas,
+  // aunque hayan pasado las 11:00.
+  setPuedeCargarMedias(new Date() < limiteEdicion)
+}
+const guardarEstimadoMedias = async () => {
+  if (!perfil?.sucursal_id || perfil?.role === 'admin') return
+
+  if (
+    cantidadMedias === '' ||
+    !Number.isInteger(Number(cantidadMedias)) ||
+    Number(cantidadMedias) < 0
+  ) {
+    setMensaje('❌ Ingresá una cantidad válida de medias')
+    return
+  }
+
+  if (!fechaEntregaMedias) {
+    setMensaje('❌ No hay una entrega habilitada')
+    return
+  }
+
+  if (!puedeCargarMedias) {
+    setMensaje('❌ El horario para cargar o modificar el estimado finalizó')
+    return
+  }
+
+  const ahora = new Date().toISOString()
+
+  // MODIFICAR UN ESTIMADO YA CARGADO
+  if (estimadoMedias) {
+    const { error } = await supabase
+      .from('estimado_medias')
+      .update({
+        cantidad: Number(cantidadMedias),
+        actualizado_at: ahora,
+      })
+      .eq('id', estimadoMedias.id)
+
+    if (error) {
+      setMensaje(`❌ Error modificando estimado: ${error.message}`)
+      return
+    }
+
+    setMensaje('✅ Estimado de medias actualizado')
+    cantidadMediasEditadaRef.current = false
+    await cargarEstimadoMedias(perfil)
+    return
+  }
+
+  // PRIMERA CARGA
+  const ciclo = getCicloEstimadoMedias()
+
+  const fechaCarga = fechaLocalISO(ciclo.fechaCarga)
+
+  const { error } = await supabase
+    .from('estimado_medias')
+    .insert({
+      sucursal_id: perfil.sucursal_id,
+      fecha_carga: fechaCarga,
+      fecha_entrega: fechaEntregaMedias,
+      cantidad: Number(cantidadMedias),
+      cargado_at: ahora,
+      actualizado_at: ahora,
+    })
+
+  if (error) {
+    setMensaje(`❌ Error guardando estimado: ${error.message}`)
+    return
+  }
+
+  setMensaje('✅ Estimado de medias guardado')
+  cantidadMediasEditadaRef.current = false
+  await cargarEstimadoMedias(perfil)
+}
+
+const cargarEstimadosAdmin = async () => {
+  if (perfil?.role !== 'admin') return
+
+  const { data, error } = await supabase
+    .from('estimado_medias')
+    .select('*')
+    .order('fecha_entrega', { ascending: false })
+
+  if (error) {
+    console.error('Error cargando estimados:', error)
+    setMensaje(`❌ Error cargando estimados: ${error.message}`)
+    return
+  }
+
+  setEstimadosAdmin(data || [])
+}
+
+
+const guardarEdicionMediasAdmin = async (sucursalId) => {
+  if (perfil?.role !== 'admin') return
+
+  const valor = edicionesMediasAdmin[sucursalId]
+
+  if (
+    valor === undefined ||
+    valor === '' ||
+    !Number.isInteger(Number(valor)) ||
+    Number(valor) < 0
+  ) {
+    setMensaje('❌ Ingresá una cantidad válida')
+    return
+  }
+
+  const fecha = fechaSeleccionadaMedias
+
+  if (!fecha) {
+    setMensaje('❌ Seleccioná una fecha de recepción')
+    return
+  }
+
+  const estimado = estimadosAdmin.find(
+    (e) =>
+      Number(e.sucursal_id) === Number(sucursalId) &&
+      e.fecha_entrega === fecha
+  )
+
+  const ahora = new Date().toISOString()
+
+  let resultado
+
+  if (estimado) {
+    resultado = await supabase
+      .from('estimado_medias')
+      .update({
+        cantidad: Number(valor),
+        actualizado_at: ahora,
+      })
+      .eq('id', estimado.id)
+      .select('id, cantidad')
+  } else {
+    resultado = await supabase
+      .from('estimado_medias')
+      .insert({
+        sucursal_id: sucursalId,
+        fecha_carga: new Date().toLocaleDateString('en-CA', {
+          timeZone: 'America/Argentina/Buenos_Aires',
+        }),
+        fecha_entrega: fecha,
+        cantidad: Number(valor),
+        cargado_at: ahora,
+        actualizado_at: ahora,
+        modificado_admin: true,
+      })
+      .select('id, cantidad')
+  }
+
+  const { data, error } = resultado
+
+  console.log('RESULTADO ESTIMADO ADMIN:', { data, error })
+
+  if (error) {
+    setMensaje(`❌ Error guardando estimado: ${error.message}`)
+    return
+  }
+
+  if (!data || data.length === 0) {
+    setMensaje('❌ No se confirmó el guardado del estimado')
+    return
+  }
+
+  setMensaje('✅ Estimado guardado por administrador')
+
+  setEdicionesMediasAdmin((anterior) => {
+    const nuevos = { ...anterior }
+    delete nuevos[sucursalId]
+    return nuevos
+  })
+
+  await cargarEstimadosAdmin()
 }
 
   const cargarPerfil = async () => {
@@ -231,8 +535,9 @@ function App() {
       sucursales: { nombre: '' },
     }
 
-    setPerfil(perfilBase)
-    return perfilBase
+   setPerfil(perfilBase)
+await cargarEstimadoMedias(perfilBase)
+return perfilBase
   }
 
   const cargarNombreSucursal = async (sucursalId) => {
@@ -766,7 +1071,31 @@ XLSX.utils.book_append_sheet(workbook, worksheetDetalle, 'Detalle')
 
     iniciar()
   }, [])
+  useEffect(() => {
+  if (!perfil?.sucursal_id || perfil?.role === 'admin') return
 
+  const intervalo = setInterval(() => {
+    cargarEstimadoMedias(perfil)
+  }, 60000)
+
+  return () => clearInterval(intervalo)
+}, [perfil?.sucursal_id, perfil?.role])
+
+
+useEffect(() => {
+  if (perfil?.role !== 'admin') return
+
+  cargarEstimadosAdmin()
+
+  const intervalo = setInterval(() => {
+    cargarEstimadosAdmin()
+  }, 60000)
+
+  return () => clearInterval(intervalo)
+}, [perfil?.role])
+
+const fechaSeleccionadaMedias =
+  fechaConsultaMedias || estimadosAdmin[0]?.fecha_entrega || ''
   const botonesRapidos = getBotonesRapidos()
 
   if (!usuario || !perfil) {
@@ -827,8 +1156,200 @@ XLSX.utils.book_append_sheet(workbook, worksheetDetalle, 'Detalle')
           <strong>Sucursal:</strong> {perfil.role === 'admin' ? 'Todas' : perfil.sucursales.nombre}
         </p>
         <p><strong>Rol:</strong> {perfil.role}</p>
+        <button onClick={logout} style={styles.buttonSecondary}>
+  Cerrar sesión
+</button>
       </div>
+      {/* ESTIMADO DE MEDIAS - SUCURSALES */}
+{perfil.role !== 'admin' && fechaEntregaMedias && (
+  <div style={styles.card}>
+    <h2>ESTIMADO DE MEDIAS</h2>
 
+    <p>
+      <strong>Fecha de recepción:</strong>{' '}
+      {fechaEntregaMedias.split('-').reverse().join('/')}
+    </p>
+
+    {mostrarAlertaMedias && !estimadoMedias && (
+      <div style={{
+        backgroundColor: '#ffe0e0',
+        color: '#b00020',
+        padding: 14,
+        borderRadius: 8,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 12
+      }}>
+        CARGAR ESTIMADO DE MEDIAS
+      </div>
+    )}
+
+    {estimadoMedias && (
+      <p>
+        <strong>Estimado cargado:</strong> {estimadoMedias.cantidad} medias
+      </p>
+    )}
+
+    {puedeCargarMedias ? (
+      <>
+       <input
+  type="number"
+  min="0"
+  step="1"
+  placeholder="Cantidad de medias"
+  value={cantidadMedias}
+  onChange={(e) => {
+    cantidadMediasEditadaRef.current = true
+    setCantidadMedias(e.target.value)
+  }}
+  style={styles.input}
+/>
+
+        <button
+          onClick={guardarEstimadoMedias}
+          style={styles.button}
+        >
+          {estimadoMedias ? 'MODIFICAR ESTIMADO' : 'GUARDAR ESTIMADO'}
+        </button>
+
+        {estimadoMedias && limiteEdicionMedias && (
+          <p>
+            Podés modificar hasta las{' '}
+            {limiteEdicionMedias.toLocaleTimeString('es-AR', {
+              hour: '2-digit',
+              minute: '2-digit'
+            })} hs.
+          </p>
+        )}
+      </>
+    ) : (
+      <p>
+        {estimadoMedias
+          ? 'El plazo para modificar el estimado finalizó.'
+          : 'El horario para cargar el estimado finalizó.'}
+      </p>
+    )}
+  </div>
+)}
+
+{/* ESTIMADO DE MEDIAS - ADMINISTRADOR */}
+{perfil.role === 'admin' && (
+  <div style={styles.card}>
+    <h2 style={styles.subtitle}>ESTIMADO DE MEDIAS</h2>
+
+    <button
+      onClick={cargarEstimadosAdmin}
+      style={styles.buttonSecondary}
+    >
+      Actualizar estimados
+    </button>
+    <p><strong>Fecha de recepción:</strong></p>
+
+<select
+  value={fechaConsultaMedias}
+  onChange={(e) => setFechaConsultaMedias(e.target.value)}
+  style={styles.input}
+>
+  <option value="">Última fecha disponible</option>
+  {[...new Set(estimadosAdmin.map((e) => e.fecha_entrega))]
+    .sort()
+    .reverse()
+    .map((fecha) => (
+      <option key={fecha} value={fecha}>
+        {fecha.split('-').reverse().join('/')}
+      </option>
+    ))}
+</select>
+
+<div style={styles.tableWrap}>
+  <table style={styles.table}>
+    <thead>
+      <tr>
+        <th style={styles.thtd}>Sucursal</th>
+        <th style={styles.thtd}>Recepción</th>
+        <th style={styles.thtd}>Medias</th>
+      </tr>
+    </thead>
+    <tbody>
+      {sucursales.map((sucursal) => {
+const fecha = fechaSeleccionadaMedias
+
+        const estimado = estimadosAdmin.find(
+          (e) =>
+            Number(e.sucursal_id) === Number(sucursal.id) &&
+            e.fecha_entrega === fecha
+        )
+
+        return (
+          <tr key={sucursal.id}>
+            <td style={styles.thtd}>{sucursal.nombre}</td>
+            <td style={styles.thtd}>
+              {fecha ? fecha.split('-').reverse().join('/') : '-'}
+            </td>
+            
+<td style={{ ...styles.thtd, padding: 4 }}>
+  <div style={{
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5
+  }}>
+    <input
+      type="number"
+      min="0"
+      step="1"
+      value={
+        edicionesMediasAdmin[sucursal.id] ??
+        (estimado ? String(estimado.cantidad) : '')
+      }
+      onChange={(e) =>
+        setEdicionesMediasAdmin((anterior) => ({
+          ...anterior,
+          [sucursal.id]: e.target.value,
+        }))
+      }
+      placeholder="—"
+      style={{
+        ...styles.input,
+        width: 65,
+        padding: 6,
+        marginBottom: 0,
+        fontSize: 14
+      }}
+    />
+    <button
+      onClick={() => guardarEdicionMediasAdmin(sucursal.id)}
+      style={{
+        ...styles.buttonSmall,
+        padding: '6px 8px',
+        margin: 0,
+        minWidth: 0,
+        fontSize: 12
+      }}
+    >
+      Guardar
+    </button>
+  </div>
+</td>
+
+          </tr>
+        )
+      })}
+    </tbody>
+  </table>
+</div>
+
+<p>
+  <strong>Total de medias:</strong>{' '}
+  {estimadosAdmin
+    .filter((e) => e.fecha_entrega === fechaSeleccionadaMedias)
+    .reduce((total, e) => total + Number(e.cantidad || 0), 0)}
+</p>
+
+    <p>
+      <strong>Total de registros:</strong> {estimadosAdmin.length}
+    </p>
+  </div>
+)}
       {perfil.role === 'admin' && (
         <div style={styles.card}>
           <h2 style={styles.subtitle}>Exportar consolidado</h2>
@@ -934,7 +1455,12 @@ XLSX.utils.book_append_sheet(workbook, worksheetDetalle, 'Detalle')
           <p>No hay items cargados</p>
         ) : (
           <div style={styles.tableWrap}>
-            <table style={styles.table}>
+            <table style={{
+  ...styles.table,
+  minWidth: 0,
+  width: '100%',
+  tableLayout: 'fixed'
+}}>
               <thead>
                 <tr>
                   <th style={styles.thtd}>Código</th>
@@ -992,9 +1518,7 @@ XLSX.utils.book_append_sheet(workbook, worksheetDetalle, 'Detalle')
           </>
         )}
 
-        <button onClick={logout} style={styles.buttonSecondary}>
-          Cerrar sesión
-        </button>
+        
 
         <p style={styles.message}>{mensaje}</p>
       </div>
