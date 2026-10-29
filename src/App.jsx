@@ -1346,7 +1346,7 @@ const fecha = fechaSeleccionadaMedias
 </p>
 
     <p>
-      <strong>Total de registros:</strong> {estimadosAdmin.length}
+      <strong>Total de registros:</strong> {estimadosAdmin.filter((e) => e.fecha_entrega === fechaSeleccionadaMedias).length}
     </p>
   </div>
 )}
@@ -1539,7 +1539,7 @@ const fecha = fechaSeleccionadaMedias
                 borderRadius: 10,
               }}
             >
-              <p><strong>Pedido ID:</strong> {pedido.id}</p>
+              <p><strong>Sucursal:</strong> {sucursales.find(s => String(s.id) === String(pedido.sucursal_id))?.nombre || 'Sin identificar'}</p>
               <p><strong>Fecha:</strong> {new Date(pedido.created_at).toLocaleString()}</p>
               <p><strong>Observaciones:</strong> {pedido.observaciones || '-'}</p>
 
