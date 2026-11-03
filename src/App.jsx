@@ -152,6 +152,7 @@ function App() {
     // ESTIMADO DE MEDIAS
 const [estimadoMedias, setEstimadoMedias] = useState(null)
 const [cantidadMedias, setCantidadMedias] = useState('')
+const [sugeridoMedias, setSugeridoMedias] = useState(null)
 const cantidadMediasEditadaRef = useRef(false)
 const cicloMediasAnteriorRef = useRef('')
 const [fechaEntregaMedias, setFechaEntregaMedias] = useState(null)
@@ -217,8 +218,7 @@ const ahora = new Date(
     timeZone: 'America/Argentina/Buenos_Aires'
   })
 )
-  const dia = ahora.getDay() // 0 domingo, 1 lunes, 4 jueves, 5 viernes
-
+const dia = ahora.getDay()
   let diasHastaEntrega = null
 
   // Lunes -> recibe sábado
@@ -282,12 +282,41 @@ if (cicloMediasAnteriorRef.current !== claveCiclo) {
 
 setFechaEntregaMedias(fechaEntrega)
 
-  const { data, error } = await supabase
-    .from('estimado_medias')
-    .select('*')
-    .eq('sucursal_id', perfilActual.sucursal_id)
-    .eq('fecha_entrega', fechaEntrega)
-    .maybeSingle()
+// SUGERIDO DE MEDIAS
+const diaRecepcion = {
+  2: 'Martes',
+  4: 'Jueves',
+  6: 'Sabado'
+}[ciclo.fechaEntrega.getDay()]
+
+setSugeridoMedias(null)
+
+if (diaRecepcion) {
+  const { data: sugerido, error: errorSugerido } = await supabase
+    .rpc('obtener_sugerido_medias', {
+      p_sucursal_id: perfilActual.sucursal_id,
+      p_dia_recepcion: diaRecepcion
+    })
+
+  console.log('RESULTADO SUGERIDO:', {
+  diaRecepcion,
+  sugerido,
+  errorSugerido
+})
+
+if (errorSugerido) {
+  console.error('Error obteniendo sugerido de medias:', errorSugerido)
+} else {
+  setSugeridoMedias(sugerido)
+}
+}
+// CARGAR ESTIMADO DE MEDIAS
+const { data, error } = await supabase
+  .from('estimado_medias')
+  .select('*')
+  .eq('sucursal_id', perfilActual.sucursal_id)
+  .eq('fecha_entrega', fechaEntrega)
+  .maybeSingle()
 
   if (error) {
     console.error('Error cargando estimado de medias:', error)
@@ -314,14 +343,12 @@ if (!cantidadMediasEditadaRef.current) {
 
 setMostrarAlertaMedias(false)
 
-  const fechaBase = new Date(data.cargado_at || data.created_at)
-  const limiteEdicion = new Date(fechaBase.getTime() + 2 * 60 * 60 * 1000)
+// La edición termina a las 11:00 del día de carga
+const limiteEdicion = new Date(ciclo.fechaCarga)
+limiteEdicion.setHours(11, 0, 0, 0)
 
-  setLimiteEdicionMedias(limiteEdicion)
-
-  // Si ya cargó, puede modificar durante 2 horas,
-  // aunque hayan pasado las 11:00.
-  setPuedeCargarMedias(new Date() < limiteEdicion)
+setLimiteEdicionMedias(limiteEdicion)
+setPuedeCargarMedias(new Date() < limiteEdicion)
 }
 const guardarEstimadoMedias = async () => {
   if (!perfil?.sucursal_id || perfil?.role === 'admin') return
@@ -1071,9 +1098,13 @@ XLSX.utils.book_append_sheet(workbook, worksheetDetalle, 'Detalle')
 
     iniciar()
   }, [])
-  useEffect(() => {
+useEffect(() => {
   if (!perfil?.sucursal_id || perfil?.role === 'admin') return
 
+  // Cargar inmediatamente al ingresar
+  cargarEstimadoMedias(perfil)
+
+  // Actualizar automáticamente cada minuto
   const intervalo = setInterval(() => {
     cargarEstimadoMedias(perfil)
   }, 60000)
@@ -1184,46 +1215,66 @@ const fechaSeleccionadaMedias =
       </div>
     )}
 
-    {estimadoMedias && (
-      <p>
-        <strong>Estimado cargado:</strong> {estimadoMedias.cantidad} medias
-      </p>
-    )}
+      {estimadoMedias && (
+        <p>
+          <strong>Estimado cargado:</strong> {estimadoMedias.cantidad} medias
+        </p>
+      )}
+      {sugeridoMedias !== null && (
+  <div style={{
+    backgroundColor: '#e8f5e9',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    textAlign: 'center'
+  }}>
+    <strong>SUGERIDO DE MEDIAS</strong>
+    <div style={{
+      fontSize: 28,
+      fontWeight: 'bold',
+      color: '#2e7d32',
+      marginTop: 6
+    }}>
+      {sugeridoMedias} medias
+    </div>
+  </div>
+)}
 
-    {puedeCargarMedias ? (
-      <>
-       <input
-  type="number"
-  min="0"
-  step="1"
-  placeholder="Cantidad de medias"
-  value={cantidadMedias}
-  onChange={(e) => {
-    cantidadMediasEditadaRef.current = true
-    setCantidadMedias(e.target.value)
-  }}
-  style={styles.input}
-/>
+      {puedeCargarMedias ? (
+        <>
+        
+        <input
+    type="number"
+    min="0"
+    step="1"
+    placeholder="Cantidad de medias"
+    value={cantidadMedias}
+    onChange={(e) => {
+      cantidadMediasEditadaRef.current = true
+      setCantidadMedias(e.target.value)
+    }}
+    style={styles.input}
+  />
 
-        <button
-          onClick={guardarEstimadoMedias}
-          style={styles.button}
-        >
-          {estimadoMedias ? 'MODIFICAR ESTIMADO' : 'GUARDAR ESTIMADO'}
-        </button>
+          <button
+            onClick={guardarEstimadoMedias}
+            style={styles.button}
+          >
+            {estimadoMedias ? 'MODIFICAR ESTIMADO' : 'GUARDAR ESTIMADO'}
+          </button>
 
-        {estimadoMedias && limiteEdicionMedias && (
-          <p>
-            Podés modificar hasta las{' '}
-            {limiteEdicionMedias.toLocaleTimeString('es-AR', {
-              hour: '2-digit',
-              minute: '2-digit'
-            })} hs.
-          </p>
-        )}
-      </>
-    ) : (
-      <p>
+          {estimadoMedias && limiteEdicionMedias && (
+            <p>
+              Podés modificar hasta las{' '}
+              {limiteEdicionMedias.toLocaleTimeString('es-AR', {
+                hour: '2-digit',
+                minute: '2-digit'
+              })} hs.
+            </p>
+          )}
+        </>
+      ) : (
+        <p>
         {estimadoMedias
           ? 'El plazo para modificar el estimado finalizó.'
           : 'El horario para cargar el estimado finalizó.'}
