@@ -146,6 +146,8 @@ function App() {
   const [ultimoPedidoGuardado, setUltimoPedidoGuardado] = useState(null)
 
   const [fechaDesde, setFechaDesde] = useState('')
+  const [mostrarResumenProduccion, setMostrarResumenProduccion] = useState(false)
+  const [resumenProduccion, setResumenProduccion] = useState([])
   const [fechaHasta, setFechaHasta] = useState('')
   const [sucursales, setSucursales] = useState([])
   const [sucursalFiltro, setSucursalFiltro] = useState('')
@@ -596,7 +598,8 @@ return perfilBase
       return
     }
 
-    setProductos(data || [])
+    console.log('PRODUCTOS 62 Y 592:', data?.filter(p => [62, 592].includes(Number(p.codigo))))
+setProductos(data || [])
   }
 
   const cargarSucursales = async () => {
@@ -639,7 +642,73 @@ return perfilBase
     setHistorial(data || [])
   }
 
-  const exportarConsolidado = async () => {
+  const generarResumenProduccion = async () => {
+  if (!fechaDesde || !fechaHasta) {
+    setMensaje('❌ Elegí fecha desde y fecha hasta')
+    return
+  }
+
+  const articulos = [
+    [14, 'CABEZA CDO. X UNI'],
+    [81, 'CHORIZO BOMBON X KG'],
+    [12, 'CHORIZO CERDO FR X KG'],
+    [239, 'CHORIZO FR. AHUM. X KG'],
+    [5, 'JAMON ENT. FR.X KG'],
+    [21, 'PALETA ENT. CDO. X KG'],
+    [241, 'PECHITO DOBLE X KG'],
+    [6, 'PULPA JAMON CDO. X KG'],
+    [66, 'SALCHICHA PARRILL. X KG'],
+    [16, 'TOCINO X KG'],
+    [3, 'MILANESAS CERDO X KG'],
+  ]
+
+  const desde = `${fechaDesde}T00:00:00`
+  const hasta = `${fechaHasta}T23:59:59`
+
+  const { data, error } = await supabase
+    .from('pedidos')
+    .select(`
+      id,
+      pedido_detalle (
+        codigo,
+        cantidad
+      )
+    `)
+    .gte('created_at', desde)
+    .lte('created_at', hasta)
+
+  if (error) {
+    console.error(error)
+    setMensaje('❌ Error al obtener pedidos')
+    return
+  }
+
+  const totales = {}
+
+  articulos.forEach(([codigo]) => {
+    totales[codigo] = 0
+  })
+
+  ;(data || []).forEach((pedido) => {
+    ;(pedido.pedido_detalle || []).forEach((item) => {
+      const codigo = Number(item.codigo)
+
+      if (Object.prototype.hasOwnProperty.call(totales, codigo)) {
+        totales[codigo] += Number(item.cantidad) || 0
+      }
+    })
+  })
+
+  const resumen = articulos.map(([codigo, articulo]) => ({
+    codigo,
+    articulo,
+    cantidad: totales[codigo],
+  }))
+
+  setResumenProduccion(resumen)
+  setMostrarResumenProduccion(true)
+}
+   const exportarConsolidado = async () => {
   if (!perfil || perfil.role !== 'admin') {
     setMensaje('❌ Solo un administrador puede exportar el consolidado')
     return
@@ -1170,27 +1239,74 @@ const fechaSeleccionadaMedias =
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.infoBox}>
-        <div style={{ textAlign: 'center', marginBottom: 10 }}>
-          <img
-            src={logo}
-            alt="Porquissimo"
-            style={{ width: '100%', maxWidth: '220px', display: 'block', margin: '0 auto' }}
-          />
-        </div>
+  <div style={styles.page}>
+    <div style={{ ...styles.infoBox, position: 'relative', padding: '12px 15px' }}>
 
-        <h1 style={styles.title}>Toma de pedidos</h1>
-        <p><strong>Email:</strong> {usuario.email}</p>
-        <p><strong>Usuario:</strong> {perfil.usuario}</p>
-        <p>
-          <strong>Sucursal:</strong> {perfil.role === 'admin' ? 'Todas' : perfil.sucursales.nombre}
-        </p>
-        <p><strong>Rol:</strong> {perfil.role}</p>
-        <button onClick={logout} style={styles.buttonSecondary}>
-  Cerrar sesión
-</button>
-      </div>
+  <button
+    onClick={logout}
+    style={{
+      ...styles.buttonSecondary,
+      position: 'absolute',
+      top: 10,
+      right: 10,
+      width: 'auto',
+      padding: '6px 12px',
+      fontSize: 12,
+      margin: 0,
+      whiteSpace: 'nowrap',
+    }}
+  >
+    Cerrar sesión
+  </button>
+
+  <div style={{ textAlign: 'center' }}>
+    <img
+      src={logo}
+      alt="Porquissimo"
+      style={{
+        width: '100%',
+        maxWidth: '220px',
+        display: 'block',
+        margin: '0 auto',
+      }}
+    />
+
+    <h1 style={{
+      ...styles.title,
+      fontSize: 24,
+      margin: '8px 0 4px',
+    }}>
+      Toma de pedidos
+    </h1>
+
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      flexWrap: 'wrap',
+      gap: '2px 15px',
+      fontSize: 12,
+      lineHeight: 1.3,
+    }}>
+      <span><strong>Usuario:</strong> {perfil.usuario}</span>
+      <span>
+        <strong>Sucursal:</strong>{' '}
+        {perfil.role === 'admin' ? 'Todas' : perfil.sucursales?.nombre}
+      </span>
+    </div>
+
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      flexWrap: 'wrap',
+      gap: '2px 15px',
+      fontSize: 12,
+      lineHeight: 1.3,
+    }}>
+      <span><strong>Email:</strong> {usuario.email}</span>
+      <span><strong>Rol:</strong> {perfil.role}</span>
+    </div>
+  </div>
+</div>
       {/* ESTIMADO DE MEDIAS - SUCURSALES */}
 {perfil.role !== 'admin' && fechaEntregaMedias && (
   <div style={styles.card}>
@@ -1285,44 +1401,82 @@ const fechaSeleccionadaMedias =
 
 {/* ESTIMADO DE MEDIAS - ADMINISTRADOR */}
 {perfil.role === 'admin' && (
+  
   <div style={styles.card}>
-    <h2 style={styles.subtitle}>ESTIMADO DE MEDIAS</h2>
+    <h2 style={{ ...styles.subtitle, textAlign: 'center', marginBottom: 12 }}>
+  ESTIMADO DE MEDIAS
+</h2>
+    <div style={{
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 10,
+  flexWrap: 'wrap',
+  marginBottom: 12,
+}}>
+  <strong style={{ whiteSpace: 'nowrap' }}>
+    Fecha de recepción:
+  </strong>
 
-    <button
-      onClick={cargarEstimadosAdmin}
-      style={styles.buttonSecondary}
-    >
-      Actualizar estimados
-    </button>
-    <p><strong>Fecha de recepción:</strong></p>
+  <select
+    value={fechaConsultaMedias}
+    onChange={(e) => setFechaConsultaMedias(e.target.value)}
+    style={{
+  ...styles.input,
+  width: 'auto',
+  flex: '1 1 140px',
+  minWidth: 0,
+  margin: 0,
+}}
+  >
+    <option value="">Última fecha disponible</option>
+    {[...new Set(estimadosAdmin.map((e) => e.fecha_entrega))]
+      .sort()
+      .reverse()
+      .map((fecha) => (
+        <option key={fecha} value={fecha}>
+          {fecha.split('-').reverse().join('/')}
+        </option>
+      ))}
+  </select>
 
-<select
-  value={fechaConsultaMedias}
-  onChange={(e) => setFechaConsultaMedias(e.target.value)}
-  style={styles.input}
+  <button
+  onClick={cargarEstimadosAdmin}
+  style={{
+    ...styles.buttonSecondary,
+    width: 'auto',
+    flexShrink: 0,
+    padding: '7px 10px',
+    fontSize: 12,
+    margin: 0,
+    whiteSpace: 'nowrap',
+  }}
 >
-  <option value="">Última fecha disponible</option>
-  {[...new Set(estimadosAdmin.map((e) => e.fecha_entrega))]
-    .sort()
-    .reverse()
-    .map((fecha) => (
-      <option key={fecha} value={fecha}>
-        {fecha.split('-').reverse().join('/')}
-      </option>
-    ))}
-</select>
+  Actualizar
+</button>
+</div>
 
-<div style={styles.tableWrap}>
-  <table style={styles.table}>
+<div style={{
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 12,
+  alignItems: 'start',
+}}>
+  <div style={styles.tableWrap}>
+  <table style={{
+  ...styles.table,
+  width: '100%',
+  minWidth: 0,
+  tableLayout: 'fixed'
+}}>
     <thead>
       <tr>
         <th style={styles.thtd}>Sucursal</th>
-        <th style={styles.thtd}>Recepción</th>
-        <th style={styles.thtd}>Medias</th>
+<th style={styles.thtd}>Medias</th>
       </tr>
     </thead>
     <tbody>
-      {sucursales.map((sucursal) => {
+      {sucursales.slice(0, Math.ceil(sucursales.length / 2)).map((sucursal) => {
 const fecha = fechaSeleccionadaMedias
 
         const estimado = estimadosAdmin.find(
@@ -1334,9 +1488,7 @@ const fecha = fechaSeleccionadaMedias
         return (
           <tr key={sucursal.id}>
             <td style={styles.thtd}>{sucursal.nombre}</td>
-            <td style={styles.thtd}>
-              {fecha ? fecha.split('-').reverse().join('/') : '-'}
-            </td>
+            
             
 <td style={{ ...styles.thtd, padding: 4 }}>
   <div style={{
@@ -1360,22 +1512,27 @@ const fecha = fechaSeleccionadaMedias
       }
       placeholder="—"
       style={{
-        ...styles.input,
-        width: 65,
-        padding: 6,
-        marginBottom: 0,
-        fontSize: 14
-      }}
+  ...styles.input,
+  width: 42,
+  minWidth: 0,
+  padding: '5px 3px',
+  marginBottom: 0,
+  fontSize: 13,
+  textAlign: 'center',
+  boxSizing: 'border-box'
+}}
     />
     <button
       onClick={() => guardarEdicionMediasAdmin(sucursal.id)}
       style={{
-        ...styles.buttonSmall,
-        padding: '6px 8px',
-        margin: 0,
-        minWidth: 0,
-        fontSize: 12
-      }}
+  ...styles.buttonSmall,
+  width: 'auto',
+  padding: '6px 5px',
+  margin: 0,
+  minWidth: 0,
+  fontSize: 11,
+  whiteSpace: 'nowrap'
+}}
     >
       Guardar
     </button>
@@ -1385,10 +1542,92 @@ const fecha = fechaSeleccionadaMedias
           </tr>
         )
       })}
-    </tbody>
+        </tbody>
   </table>
 </div>
 
+<div style={styles.tableWrap}>
+  <table style={{
+  ...styles.table,
+  width: '100%',
+  minWidth: 0,
+  tableLayout: 'fixed'
+}}>
+    <thead>
+      <tr>
+        <th style={styles.thtd}>Sucursal</th>
+        <th style={styles.thtd}>Medias</th>
+      </tr>
+    </thead>
+    <tbody>
+      {sucursales.slice(Math.ceil(sucursales.length / 2)).map((sucursal) => {
+        const fecha = fechaSeleccionadaMedias
+
+        const estimado = estimadosAdmin.find(
+          (e) =>
+            Number(e.sucursal_id) === Number(sucursal.id) &&
+            e.fecha_entrega === fecha
+        )
+
+        return (
+          <tr key={sucursal.id}>
+            <td style={styles.thtd}>{sucursal.nombre}</td>
+            
+            <td style={{ ...styles.thtd, padding: 4 }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={
+                    edicionesMediasAdmin[sucursal.id] ??
+                    (estimado ? String(estimado.cantidad) : '')
+                  }
+                  onChange={(e) =>
+                    setEdicionesMediasAdmin((anterior) => ({
+                      ...anterior,
+                      [sucursal.id]: e.target.value,
+                    }))
+                  }
+                  placeholder="—"
+                  style={{
+  ...styles.input,
+  width: 42,
+  minWidth: 0,
+  padding: '5px 3px',
+  marginBottom: 0,
+  fontSize: 13,
+  textAlign: 'center',
+  boxSizing: 'border-box'
+}}
+                />
+                <button
+                  onClick={() => guardarEdicionMediasAdmin(sucursal.id)}
+                  style={{
+  ...styles.buttonSmall,
+  width: 'auto',
+  padding: '6px 5px',
+  margin: 0,
+  minWidth: 0,
+  fontSize: 11,
+  whiteSpace: 'nowrap'
+}}
+                >
+                  Guardar
+                </button>
+              </div>
+            </td>
+          </tr>
+        )
+      })}
+    </tbody>
+  </table>
+</div>
+</div>
 <p>
   <strong>Total de medias:</strong>{' '}
   {estimadosAdmin
@@ -1403,38 +1642,196 @@ const fecha = fechaSeleccionadaMedias
 )}
       {perfil.role === 'admin' && (
         <div style={styles.card}>
-          <h2 style={styles.subtitle}>Exportar consolidado</h2>
+          <h2 style={{ ...styles.subtitle, textAlign: 'center' }}>
+  Exportar consolidado
+</h2>
 
-          <input
-            type="date"
-            value={fechaDesde}
-            onChange={(e) => setFechaDesde(e.target.value)}
-            style={styles.input}
-          />
+<div style={{
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 10,
+  marginBottom: 10,
+}}>
+  <div>
+    <label style={{ fontSize: 12 }}>Desde</label>
+    <input
+      type="date"
+      value={fechaDesde}
+      onChange={(e) => setFechaDesde(e.target.value)}
+      style={{
+        ...styles.input,
+        width: '100%',
+        minWidth: 0,
+        boxSizing: 'border-box',
+        margin: 0,
+      }}
+    />
+  </div>
 
-          <input
-            type="date"
-            value={fechaHasta}
-            onChange={(e) => setFechaHasta(e.target.value)}
-            style={styles.input}
-          />
+  <div>
+    <label style={{ fontSize: 12 }}>Hasta</label>
+    <input
+      type="date"
+      value={fechaHasta}
+      onChange={(e) => setFechaHasta(e.target.value)}
+      style={{
+        ...styles.input,
+        width: '100%',
+        minWidth: 0,
+        boxSizing: 'border-box',
+        margin: 0,
+      }}
+    />
+  </div>
+</div>
 
-          <select
-            value={sucursalFiltro}
-            onChange={(e) => setSucursalFiltro(e.target.value)}
-            style={styles.input}
-          >
-            <option value="">Todas las sucursales</option>
-            {sucursales.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
+<select
+  value={sucursalFiltro}
+  onChange={(e) => setSucursalFiltro(e.target.value)}
+  style={{ ...styles.input, width: '100%', boxSizing: 'border-box' }}
+>
+  <option value="">Todas las sucursales</option>
+  {sucursales.map((s) => (
+    <option key={s.id} value={s.id}>
+      {s.nombre}
+    </option>
+  ))}
+</select>
 
-          <button onClick={exportarConsolidado} style={styles.button}>
-            Exportar consolidado Excel
-          </button>
+<div style={{
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 10,
+}}>
+  <button
+    onClick={exportarConsolidado}
+    style={{ ...styles.button, width: '100%', margin: 0 }}
+  >
+    Exportar consolidado Excel
+  </button>
+
+  <button
+    onClick={generarResumenProduccion}
+    style={{ ...styles.button, width: '100%', margin: 0 }}
+  >
+    Resumen de producción
+  </button>
+</div>
+                </div>
+      )}
+
+      {perfil?.role === 'admin' && mostrarResumenProduccion && (
+        <div id="resumen-para-imprimir" style={styles.card}>
+          <h2 style={styles.subtitle}>Resumen de producción</h2>
+          <div style={{
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 10,
+  marginBottom: 15,
+}}>
+  <button
+  style={styles.button}
+  onClick={() => {
+    const contenido = document.getElementById('resumen-para-imprimir')
+
+    if (!contenido) return
+
+    const ventana = window.open('', '_blank')
+
+    if (!ventana) {
+      alert('Permití las ventanas emergentes para imprimir')
+      return
+    }
+
+    const copia = contenido.cloneNode(true)
+    copia.querySelectorAll('button').forEach((boton) => boton.remove())
+
+    ventana.document.write(`
+      <html>
+        <head>
+          <title>Resumen de producción - Porquissimo</title>
+          <style>
+            @page { size: A4; margin: 15mm; }
+            body { font-family: Arial, sans-serif; color: #222; }
+            h2 { text-align: center; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 10px; border-bottom: 1px solid #ccc; }
+            th { background: #eee; }
+          </style>
+        </head>
+        <body>${copia.innerHTML}</body>
+      </html>
+    `)
+
+    ventana.document.close()
+    ventana.onload = () => {
+      ventana.focus()
+      ventana.print()
+    }
+  }}
+>
+  Imprimir
+</button>
+
+  <button
+    style={styles.button}
+    onClick={() => {
+      const texto = [
+        'RESUMEN DE PRODUCCIÓN',
+        `Período: ${fechaDesde} al ${fechaHasta}`,
+        '',
+        ...resumenProduccion.map(
+          (item) => `${item.codigo} - ${item.articulo}: ${item.cantidad}`
+        ),
+      ].join('\n')
+
+      window.open(
+  `https://web.whatsapp.com/send?text=${encodeURIComponent(texto)}`,
+  '_blank'
+)
+    }}
+  >
+    Enviar por WhatsApp
+  </button>
+</div>
+
+          <p>
+            Período: {fechaDesde} al {fechaHasta}
+          </p>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: 8 }}>Código</th>
+                <th style={{ textAlign: 'center', padding: 8 }}>Artículo</th>
+                <th style={{ textAlign: 'right', padding: 8 }}>Cantidad</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {resumenProduccion.map((item) => (
+                <tr key={item.codigo}>
+                  <td style={{ padding: 8, borderBottom: '1px solid #ddd' }}>
+                    {item.codigo}
+                  </td>
+                  <td style={{
+  padding: 8,
+  borderBottom: '1px solid #ddd',
+  textAlign: 'left'
+}}>
+  {item.articulo}
+</td>
+                  <td style={{
+                    padding: 8,
+                    borderBottom: '1px solid #ddd',
+                    textAlign: 'right'
+                  }}>
+                    {item.cantidad}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -1449,11 +1846,29 @@ const fecha = fechaSeleccionadaMedias
           disabled={pedidoConfirmado}
         >
           <option value="">Seleccionar producto</option>
-          {productos.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.codigo} - {p.nombre}
-            </option>
-          ))}
+          {productos
+  .filter((p) => {
+    const codigo = Number(p.codigo)
+
+    if (codigo !== 62 && codigo !== 592) {
+      return true
+    }
+
+    if (perfil?.role === 'admin') {
+      return true
+    }
+
+    const sucursal = perfil?.sucursales?.nombre
+      ?.trim()
+      .toLowerCase()
+
+    return sucursal === 'salto' || sucursal === 'pergamino'
+  })
+  .map((p) => (
+    <option key={p.id} value={p.id}>
+      {p.codigo} - {p.nombre}
+    </option>
+  ))}
         </select>
 
         <input
@@ -1595,7 +2010,12 @@ const fecha = fechaSeleccionadaMedias
               <p><strong>Observaciones:</strong> {pedido.observaciones || '-'}</p>
 
               <div style={styles.tableWrap}>
-                <table style={styles.table}>
+                <table style={{
+  ...styles.table,
+  width: '100%',
+  minWidth: 0,
+  tableLayout: 'fixed'
+}}>
                   <thead>
                     <tr>
                       <th style={styles.thtd}>Código</th>
