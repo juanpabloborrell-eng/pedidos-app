@@ -1429,7 +1429,7 @@ const fechaSeleccionadaMedias =
   margin: 0,
 }}
   >
-    <option value="">Última fecha disponible</option>
+    <option value="">Última dis.</option>
     {[...new Set(estimadosAdmin.map((e) => e.fecha_entrega))]
       .sort()
       .reverse()
@@ -1459,7 +1459,7 @@ const fechaSeleccionadaMedias =
 <div style={{
   display: 'grid',
   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: 12,
+  gap: 4,
   alignItems: 'start',
 }}>
   <div style={styles.tableWrap}>
@@ -1596,11 +1596,11 @@ const fecha = fechaSeleccionadaMedias
                   placeholder="—"
                   style={{
   ...styles.input,
-  width: 42,
+  width: 32,
   minWidth: 0,
-  padding: '5px 3px',
+  padding: '4px 2px',
   marginBottom: 0,
-  fontSize: 13,
+  fontSize: 12,
   textAlign: 'center',
   boxSizing: 'border-box'
 }}
@@ -1610,7 +1610,7 @@ const fecha = fechaSeleccionadaMedias
                   style={{
   ...styles.buttonSmall,
   width: 'auto',
-  padding: '6px 5px',
+  padding: '4px 2px',
   margin: 0,
   minWidth: 0,
   fontSize: 11,
@@ -1785,10 +1785,13 @@ const fecha = fechaSeleccionadaMedias
         ),
       ].join('\n')
 
-      window.open(
-  `https://web.whatsapp.com/send?text=${encodeURIComponent(texto)}`,
-  '_blank'
-)
+      const esCelular = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
+const enlace = esCelular
+  ? `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`
+  : `https://web.whatsapp.com/send?text=${encodeURIComponent(texto)}`
+
+window.open(enlace, '_blank')
     }}
   >
     Enviar por WhatsApp
